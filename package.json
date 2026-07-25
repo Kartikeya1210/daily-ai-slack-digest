@@ -1,0 +1,14 @@
+{
+  "name": "daily-ai-slack-digest",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "digest": "node src/daily-ai-picks.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5"
+  }
+}
