@@ -47,6 +47,27 @@ The user wanted five important AI links each morning, but later identified a key
 
 **Response:** The project uses an LLM to turn each selected story into three short, easy-to-read explanations.
 
+### Publishing a safe portfolio version
+
+**Challenge:** The working folder contained unrelated job-search automation and local credentials. Publishing the whole workspace would have made the portfolio unfocused and risked exposing configuration details.
+
+**Response:** Extracted the digest into a standalone project with its own dependency manifest, `.env.example`, `.gitignore`, README, and project log. Runtime state, logs, API keys, and Slack webhook URLs remain excluded from GitHub.
+
+### GitHub authentication across Windows profiles
+
+**Challenge:** The GitHub connector could read the account profile but did not have write access to the newly created repository. GitHub CLI was then authenticated from an Administrator PowerShell profile, while the automated environment used a different Windows profile.
+
+**Response:** Used the authenticated Administrator GitHub CLI session to push the committed portfolio project. This reinforced the decision to keep the project self-contained and to document the exact setup path rather than depend on one interactive development environment.
+
+## Documentation Practice
+
+This file is maintained as a living project record. Each meaningful change should add a brief entry covering:
+
+1. The problem or new requirement.
+2. The decision made and why.
+3. The implementation or operational change.
+4. The result, including any remaining limitation.
+
 ## Value
 
 - Reduces a broad news scan to five prioritized items.
