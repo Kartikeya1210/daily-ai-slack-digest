@@ -2,17 +2,31 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as cheerio from 'cheerio';
 import dotenv from 'dotenv';
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 const sourceDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(sourceDir, '..');
 dotenv.config({ path: path.join(rootDir, '.env') });
-
-const timezone = 'America/New_York';
+const timezone = process.env.DIGEST_TIMEZONE || 'America/New_York';
 const stateDir = path.join(rootDir, 'data', 'daily-ai-picks');
 const stateFile = path.join(stateDir, 'last-successful-post.json');
 const logFile = path.join(stateDir, 'delivery.log');
+const execFileAsync = promisify(execFile);
+
+async function loadWindowsUserSetting(name) {
+  if (process.platform !== 'win32' || process.env[name]) return;
+
+  try {
+    const { stdout } = await execFileAsync('reg.exe', ['query', 'HKCU\\Environment', '/v', name]);
+    const match = stdout.match(new RegExp(`${name}\\s+REG_\\w+\\s+(.+)`, 'i'));
+    if (match) process.env[name] = match[1].trim();
+  } catch {
+    // The setting is optional here; main() produces the actionable error if absent.
+  }
+}
 
 function easternDate() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -29,6 +43,7 @@ function cleanText(value = '') {
 
 async function fetchText(url) {
   const response = await fetch(url, {
+    signal: AbortSignal.timeout(20000),
     headers: { 'User-Agent': 'DailyAIPicks/1.0 (+local scheduled task)' },
   });
   if (!response.ok) throw new Error(`Feed request failed (${response.status}) for ${url}`);
@@ -47,12 +62,12 @@ async function loadFeed(url, sourceName) {
   })).get();
 }
 
-function selectStories(stories) {
-  const oldestAllowed = Date.now() - 3 * 24 * 60 * 60 * 1000;
+export function selectStories(stories, now = Date.now()) {
+  const oldestAllowed = now - 3 * 24 * 60 * 60 * 1000;
   const seenTitles = new Set();
   return stories
     .filter((story) => story.title && story.link && Number.isFinite(story.publishedAt.getTime()))
-    .filter((story) => story.publishedAt.getTime() >= oldestAllowed)
+    .filter((story) => story.publishedAt.getTime() >= oldestAllowed && story.publishedAt.getTime() <= now)
     .sort((a, b) => b.publishedAt - a.publishedAt)
     .filter((story) => {
       const key = story.title.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -67,7 +82,7 @@ async function summarize(stories) {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const sources = stories.map((story, index) => `${index + 1}. ${story.title}\nSource: ${story.source}\nLink: ${story.link}\nFeed summary: ${story.description}`).join('\n\n');
   const response = await anthropic.messages.create({
-    model: 'claude-3-5-haiku-latest',
+    model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
     max_tokens: 1600,
     messages: [{
       role: 'user',
@@ -105,13 +120,15 @@ async function retry(operation, label) {
 }
 
 async function main() {
-  if (!process.env.SLACK_WEBHOOK_URL) throw new Error('SLACK_WEBHOOK_URL is not available to this scheduled task.');
+  const dryRun = process.argv.includes('--dry-run');
+  if (!dryRun) await loadWindowsUserSetting('SLACK_WEBHOOK_URL');
+  if (!dryRun && !process.env.SLACK_WEBHOOK_URL) throw new Error('SLACK_WEBHOOK_URL is not available to this scheduled task.');
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not configured in .env.');
 
   await mkdir(stateDir, { recursive: true });
   const today = easternDate();
   const lastPost = await readLastPost();
-  if (lastPost?.date === today) {
+  if (!dryRun && lastPost?.date === today) {
     await log(`Skipped duplicate run for ${today}.`);
     return;
   }
@@ -125,8 +142,11 @@ async function main() {
   if (stories.length < 5) throw new Error(`Only found ${stories.length} recent AI stories; refusing to send an incomplete digest.`);
 
   const message = await retry(() => summarize(stories), 'Summary generation');
+  if (!message || message.length > 3500) throw new Error('Summary is empty or exceeds 3500 characters');
+  if (dryRun) { console.log(message); return; }
   await retry(async () => {
     const response = await fetch(process.env.SLACK_WEBHOOK_URL, {
+      signal: AbortSignal.timeout(20000),
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: message }),
@@ -138,7 +158,7 @@ async function main() {
   await log(`Posted ${stories.length} stories for ${today}.`);
 }
 
-main().catch(async (error) => {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch(async (error) => {
   await log(`Run failed: ${error.message}`);
   console.error(error.message);
   process.exitCode = 1;
