@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "digest": "node src/daily-ai-picks.js"
+    "digest": "node src/daily-ai-picks.js",
+    "demo": "node demo.js",
+    "dry-run": "node src/daily-ai-picks.js --dry-run",
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

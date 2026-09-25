@@ -1,48 +1,49 @@
 # Daily AI Slack Digest
 
-A lightweight automation that finds five recent AI stories, turns them into plain-English summaries, and posts the result to Slack each morning.
+A recovered personal worker that collects recent AI headlines, requests plain-English explanations from Claude, and can deliver a five-story briefing to Slack.
 
-## The Problem
+**Recovered work:** feed collection, title deduplication, recency selection, summarization, webhook delivery, retry loop and local successful-date tracking. **New portfolio work (2026-09-25):** offline fixture demo, tests, dry-run output, isolated configuration, future-date rejection, request timeouts and import-safe entry point. See [PROVENANCE.md](PROVENANCE.md).
 
-Following AI news takes time. Headlines are noisy, sources overlap, and a list of links does not explain why a story matters. This project creates a short daily briefing that is easy to understand without opening every article.
+## Credential-free demo
 
-## What It Does
+Requires Node.js 22. From this directory:
 
-- Collects recent AI stories from Google News and TechCrunch.
-- Removes duplicate headlines and selects five current stories.
-- Uses Claude to write a simple explanation for each item:
-  - What happened
-  - Why it matters
-  - What to watch next
-- Posts directly to a chosen Slack channel using an Incoming Webhook.
-- Runs independently through Windows Task Scheduler, with a 7:50 AM backup trigger.
-- Retries temporary errors and records successful deliveries to prevent duplicate posts.
+```sh
+npm ci
+npm run demo
+npm test
+```
 
-## Tech Stack
+The demo passes six fictional feed items, including a duplicate, through the real selection function and displays five results. It does not call Claude or Slack. These are synthetic headlines, not current news.
 
-- Node.js
-- Anthropic Messages API
-- Slack Incoming Webhooks
-- Google News RSS and TechCrunch RSS
-- Windows Task Scheduler
+## Configure the real worker
 
-## Setup
+Copy `.env.example` to `.env`. Supply `ANTHROPIC_API_KEY`, an `ANTHROPIC_MODEL` available to your account, and `SLACK_WEBHOOK_URL`. The model default is inherited from the recovered worker and was not live-validated in this reconstruction. Optional `DIGEST_TIMEZONE` defaults to `America/New_York`.
 
-1. Install dependencies: `npm install`
-2. Copy `.env.example` to `.env` and add `ANTHROPIC_API_KEY`.
-3. Create a Slack Incoming Webhook for the destination channel.
-4. Set the webhook as a Windows user environment variable named `SLACK_WEBHOOK_URL`.
-5. Run once with `npm run digest`.
-6. Register `src/daily-ai-picks.js` in Windows Task Scheduler at 7:30 AM, with a backup run at 7:50 AM.
+`npm run dry-run` fetches real feeds and makes a paid model call, prints the generated briefing, and does not post or mark a delivery successful. `npm run digest` sends to the configured Slack webhook. These live actions were not run while preparing the portfolio.
 
-## Reliability Design
+## Architecture
 
-The first version used a local in-app scheduler. It occasionally missed runs because the scheduler host did not always dispatch jobs. The delivery path was redesigned around Windows Task Scheduler and a Slack Incoming Webhook so the task can run even when the app is closed. A local state file records the date of a successful post, making the backup run safe.
+```mermaid
+flowchart LR
+  A[External scheduler] --> B[Check successful local date]
+  B --> C[Google News and TechCrunch RSS]
+  C --> D[Newest five distinct recent titles]
+  D --> E[Claude summary]
+  E --> F{Dry run?}
+  F -->|yes| G[Console preview]
+  F -->|no| H[Slack webhook]
+  H --> I[Save success date]
+```
 
-## Project Story
+Selection is based on recency and normalized headline uniqueness. It does not implement a learned importance score, fact verification, semantic deduplication or source-quality ranking. The model receives feed summaries, not full articles.
 
-See [docs/PROJECT_LOG.md](docs/PROJECT_LOG.md) for the build process, decisions, challenges, and portfolio-ready outcomes.
+## Scheduling and reliability
 
-## Security
+Configure an external scheduler to run `node src/daily-ai-picks.js` from this repository. The original workflow used Windows Task Scheduler with primary and backup runs; its history is in [docs/PROJECT_LOG.md](docs/PROJECT_LOG.md). No scheduler was installed or changed in this reconstruction. The supplied `run-digest.cmd` is portable within this repository.
 
-Never commit `.env`, `SLACK_WEBHOOK_URL`, delivery logs, or state files. The webhook URL is a secret that can post to its assigned Slack channel.
+Successful-date tracking suppresses sequential same-day runs. It does **not** guarantee exactly-once delivery: concurrent runs, or a crash after Slack accepts a message but before the state is saved, can duplicate posts. Configure the scheduler to disallow overlap. Retries of ambiguous delivery failures can also duplicate messages. Feed or model failures can still prevent delivery. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Demonstrate the project
+
+See [docs/DEMO.md](docs/DEMO.md). No measured readership, time-saved or delivery-rate claims are included. Keep `.env`, runtime logs and state outside version control.
